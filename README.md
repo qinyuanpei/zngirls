@@ -2,7 +2,7 @@
 
 A Python script to batch download albums from https://www.nvshens.com
 
-# Useage
+# Usage
 if you want download all albums of specify girl like:
 [https://www.nvshens.com/girl/16702/](https://www.nvshens.com/girl/16702/)
 
