@@ -21,26 +21,23 @@ class ZNGirls:
         self.GirlInfo = {}
         self.GirlAlbums = []
         self.GirlSocial = []
-        self.GirlStore = ''
+        self.GirlScore = ''
         self.Session = requests.session()
         self.Session.headers['User-Agent'] = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36'
 
+    # 获取妹子姓名
     def getGirlName(self, soup):
-        self.GirlName = soup.find(
-            name='div', attrs={"class": "div_h1"}).h1.string
+        return soup.find(name='div', attrs={"class": "div_h1"}).h1.string
 
-    def getGirlPage(self):
-        return self.GirlPage
-
+    # 获取妹子描述
     def getGirlDesc(self, soup):
-        self.GirlDesc = soup.find(
-            name='div', attrs={"class": "infocontent"}).find("p").string
-        print(self.GirlDesc)
-
+        return soup.find(name='div', attrs={"class": "infocontent"}).find("p").string
+    
+    # 获取妹子图集
     def getGirlAlbums(self, soup):
         archives = soup.find_all(name="span", attrs={"class": "archive_more"})
         is_allAlbums = len(archives) <= 0
-        if(is_allAlbums == False):
+        if  not is_allAlbums:
             archive_url = self.GirlPage + 'album/'
             html = self.get(archive_url)
             soup = BeautifulSoup(html)
@@ -51,38 +48,40 @@ class ZNGirls:
             album['Url'] = f'https://www.nvshens.org/{album["Id"]}'
             album['Title'] = albumLink.img['alt']
             rstr = r"[\/\\\:\*\?\"\<\>\|]"
-            album['Title'] = re.sub(rstr, "_", album['Title'])  # 替换为下划线
-            self.GirlAlbums.append(album)
-
-    def getGirlStore(self, soup):
-        self.GirlStore = soup.find(
-            name="span", attrs={"class": "score"}).contents[0]
-        print(self.GirlStore)
-
+            album['Title'] = re.sub(rstr, "_", album['Title'])  # 替换路径中的特殊字符为下划线
+            yield album
+    
+    # 获取妹子评分
+    def getGirlScore(self, soup):
+        return soup.find(name="span", attrs={"class": "score"}).contents[0]
+    
+    # 获取图集名称
     def getGirlAlbumName(self, soup):
         return soup.find(name="div", attrs={"class": "albumTitle"}).h1.string
-
+    
+    # 获取妹子信息
     def getGirlInfo(self, soup):
+        girlInfo = {}
         table = soup.find(name='div', attrs={"class": "infodiv"}).table
         if table != None:
             for row in table.find_all('tr'):
                 cols = row.contents
-                self.GirlInfo[cols[0].text.strip()] = cols[1].text.strip()
-        print(self.GirlInfo)
-
+                girlInfo[cols[0].text.strip()] = cols[1].text.strip()
+        return girlInfo
+    
+    # 获取HTML
     def get(self, url):
         response = self.Session.get(url, allow_redirects=False)
         response.encoding = 'utf-8'
         content = response.text
         return content
-
+    
+    # 获取图集页数
     def getAlbumPagesCount(self, soup):
-        pages = soup.find_all(name="div", attrs={"id": 'pages'})[
-            0].find_all("a")
-        count = len(pages)
-        count = count-1
-        return count
-
+        pages = soup.find_all(name="div", attrs={"id": 'pages'})[0].find_all("a")
+        return len(pages) - 1
+    
+    # 获取图片
     def getImage(self, url, fileName):
         response = self.Session.get(url, allow_redirects=False)
         response.raise_for_status()
@@ -90,7 +89,8 @@ class ZNGirls:
         imgFile = open(fileName, 'wb')
         imgFile.write(data)
         imgFile.close()
-
+    
+    # 获取当前目录
     def getPath(self):
         path = sys.path[0]
         if os.path.isdir(path):
@@ -98,32 +98,37 @@ class ZNGirls:
         elif os.path.isfile(path):
             return os.path.dirname(path)
 
+    # 下载指定图集
     def downloadAlbum(self, album):
-        html = self.get(album['Url'])
+        albumUrl = album['Url']
+        albumTitle = album['Title']
+
+        html = self.get(albumUrl)
         soup = BeautifulSoup(html)
 
+        # 为每个妹子建一个目录
         girlPath = os.path.join(self.getPath(), self.GirlName)
-        if(os.path.exists(girlPath) == False):
+        if not os.path.exists(girlPath):
             os.mkdir(girlPath)
-
-        albumPath = os.path.join(girlPath, album['Title'])
-        if(os.path.exists(albumPath) == False):
+        
+        # 为一个图集建一个目录
+        albumPath = os.path.join(girlPath, albumTitle)
+        if not os.path.exists(albumPath):
             os.mkdir(albumPath)
-
-        count = self.getAlbumPagesCount(soup)
+        
+        # 抓取图片链接
+        total = self.getAlbumPagesCount(soup)
         images = []
-        for i in range(0, count):
+        for i in range(0, total):
             html = self.get(album['Url'] + str(i+1) + '.html')
             soup = BeautifulSoup(html)
-            items = soup.find(name="div", attrs={
-                              "class": "gallery_wrapper"}).find_all("img")
+            items = soup.find(name="div", attrs={"class": "gallery_wrapper"}).find_all("img")
             for item in items:
                 images.append(item['src'].replace('/s/', '/'))
 
         args = []
         for index, url in enumerate(images):
-            args.append(
-                (None, {'url': url, 'fileName': albumPath + '//' + str(index) + ".jpg"}))
+            args.append((None, {'url': url, 'fileName': albumPath + '//' + str(index) + ".jpg"}))
         pool = threadpool.ThreadPool(max(10, len(images)))
         requests = threadpool.makeRequests(self.getImage, args)
         [pool.putRequest(req) for req in requests]
@@ -132,19 +137,17 @@ class ZNGirls:
     def downloadAll(self):
         html = self.get(self.GirlPage)
         soup = BeautifulSoup(html)
-        self.getGirlName(soup)
-        self.getGirlDesc(soup)
-        self.getGirlAlbums(soup)
-        self.getGirlInfo(soup)
-        self.getGirlStore(soup)
-        print(f'{self.GirlName} {self.GirlStore}\n')
-        print(
-            '\n'.join(map(lambda x: f'{x[0]} {x[1]}', self.GirlInfo.items())))
-        if (self.getGirlDesc != None):
-            print(f'{self.GirlDesc}\n')
+        self.GirlName = self.getGirlName(soup)
+        self.GirlDesc = self.getGirlDesc(soup)
+        self.GirlAlbums = list(self.getGirlAlbums(soup))
+        self.GirlInfo = self.getGirlInfo(soup)
+        self.GirlScore = self.getGirlScore(soup)
 
         albumLen = len(self.GirlAlbums)
-        pool = threadpool.ThreadPool(max(10, albumLen))
+        maxNum = 5
+        if albumLen < maxNum:
+           maxNum = albumLen
+        pool = threadpool.ThreadPool(maxNum)
         requests = threadpool.makeRequests(self.downloadAlbum, self.GirlAlbums)
         [pool.putRequest(req) for req in requests]
         pool.wait()
@@ -175,6 +178,8 @@ class ZNGirls:
 
 
 if __name__ == '__main__':
-    girl = ZNGirls('25101')
-    girl.downloadAll()
-    # girl.random();
+    if len(sys.argv) > 1:
+        print(sys.argv[1:])
+        for girlId in sys.argv[1:]:
+            girl = ZNGirls(girlId)
+            girl.downloadAll()
