@@ -1,12 +1,14 @@
 import requests
+from requests.adapters import HTTPAdapter
 import os
 import re
 import sys
 import uuid
+import json
 import random
 import threading
 import threadpool
-
+import fake_useragent
 from bs4 import BeautifulSoup
 
 
@@ -23,7 +25,10 @@ class ZNGirls:
         self.GirlSocial = []
         self.GirlScore = ''
         self.Session = requests.session()
-        self.Session.headers['User-Agent'] = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36'
+        self.Session.mount('http://', HTTPAdapter(max_retries=3))
+        self.Session.mount('https://', HTTPAdapter(max_retries=3))
+        self.Session.headers['User-Agent'] = fake_useragent.UserAgent().random
+        self.Proxies = self.getIpList()
 
     # 获取妹子姓名
     def getGirlName(self, soup):
@@ -71,7 +76,12 @@ class ZNGirls:
     
     # 获取HTML
     def get(self, url):
-        response = self.Session.get(url, allow_redirects=False)
+        proxyIP = random.choice(self.Proxies)
+        proxies = {
+            'http': proxyIP,
+            'https': proxyIP
+        }
+        response = self.Session.get(url, allow_redirects=False, timeout=10, proxies=None)
         response.encoding = 'utf-8'
         content = response.text
         return content
@@ -82,13 +92,50 @@ class ZNGirls:
         return len(pages) - 1
     
     # 获取图片
-    def getImage(self, url, fileName):
-        response = self.Session.get(url, allow_redirects=False)
-        response.raise_for_status()
-        data = response.content
-        imgFile = open(fileName, 'wb')
-        imgFile.write(data)
-        imgFile.close()
+    def getImage(self, url, fileName, retries=5):
+        try:
+            proxyIP = random.choice(self.Proxies)
+            proxies = {
+                'http': proxyIP,
+                'https': proxyIP
+            }
+            self.Session.headers["Referer"] = "https://www.nvshens.org"
+            response = self.Session.get(url, allow_redirects=False, timeout=10, proxies=None)
+            response.raise_for_status()
+            data = response.content
+            imgFile = open(fileName, 'wb')
+            imgFile.write(data)
+            imgFile.close()
+            return True
+        except:
+            while retries > 0:
+                retries -= 1
+                if self.getImage(url, fileName, retries):
+                    break
+                else:
+                    continue
+
+    # 
+    def getIpList(self, maxPage=10):
+        if (os.path.exists('ipList.json')):
+            with open('ipList.json','rt',encoding='utf-8') as fp:
+                return json.load(fp)
+        else:
+            ipList = []
+            page = 1
+            while (page <= maxPage):
+                response = requests.get(f'http://www.kuaidaili.com/free/inha/{page}')
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text)
+                trs = soup.find(name='table').find_all(name='tr')
+                for tr in trs[1:]:
+                    tds = tr.find_all(name='td')
+                    ip = tds[0].text + ':' + tds[1].text
+                    ipList.append(ip)
+                page+=1
+            with open('ipList.json','wt',encoding='utf-8') as fp:
+                json.dump(ipList, fp)
+            return ipList
     
     # 获取当前目录
     def getPath(self):
@@ -128,7 +175,9 @@ class ZNGirls:
 
         args = []
         for index, url in enumerate(images):
-            args.append((None, {'url': url, 'fileName': albumPath + '//' + str(index) + ".jpg"}))
+            fileName = os.path.join(albumPath, f'{str(index)}.jpg')
+            args.append((None, {'url': url, 'fileName': fileName}))
+        
         pool = threadpool.ThreadPool(max(10, len(images)))
         requests = threadpool.makeRequests(self.getImage, args)
         [pool.putRequest(req) for req in requests]
@@ -179,7 +228,6 @@ class ZNGirls:
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        print(sys.argv[1:])
         for girlId in sys.argv[1:]:
             girl = ZNGirls(girlId)
             girl.downloadAll()
